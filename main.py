@@ -18,6 +18,7 @@ def main():
         for keyword in config["keywords"]:
             # Fetch current jobs
             jobs = fetch_all_jobs(keyword)
+            print(f"🔍 Found '{len(jobs)}' jobs for keyword: '{keyword}' in category: '{category}'")
             
             for job in jobs:
                 # 2. Deduplication check

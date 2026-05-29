@@ -1,20 +1,25 @@
 import requests
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Create an IST timezone object
+IST = timezone(timedelta(hours=5, minutes=30))
 
 STATE_FILE = "last_run.json"
 
 def get_last_run_time():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
+            # Load the stored time and ensure it is IST-aware
             return datetime.fromisoformat(json.load(f)["timestamp"])
-    return datetime.now().replace(microsecond=0) # Default to now
-
+    # Return current IST time if no file exists
+    return datetime.now(IST).replace(microsecond=0)
 
 def save_last_run_time():
+    # Force the use of IST for the save
     with open(STATE_FILE, "w") as f:
-        json.dump({"timestamp": datetime.now().isoformat()}, f)
+        json.dump({"timestamp": datetime.now(IST).isoformat()}, f)
 
 
 def send_telegram_message(chat_id, message):
