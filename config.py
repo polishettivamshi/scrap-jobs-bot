@@ -10,7 +10,7 @@ DEVOPS_CHAT_ID = os.getenv("SST_DEVOPS_JOBS_CHAT_ID")
 JOB_CATEGORIES = {
     "backend": {
         "chat_id": BACKEND_CHAT_ID,
-        "keywords": ["python developer", "java developer", "node js developer", "backend developer", "golang developer", "software engineer", "php developer", "ruby on rails developer", "c# developer", "rust developer"]
+        "keywords": ["manual testing", "API Testing", "python developer", "java developer", "node js developer", "backend developer", "golang developer", "software engineer", "php developer", "ruby on rails developer", "c# developer", "rust developer"]
     },
     "frontend": {
         "chat_id": FRONTEND_CHAT_ID,
