@@ -3,7 +3,7 @@ import os
 import json
 import time
 from datetime import datetime, timezone, timedelta
-from main import push_to_github
+from services import push_to_github
 
 IST        = timezone(timedelta(hours=5, minutes=30))
 STATE_FILE = "last_run.json"
