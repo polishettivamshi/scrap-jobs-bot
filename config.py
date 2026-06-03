@@ -21,7 +21,7 @@ DEVOPS_CHAT_ID   = os.getenv("SST_DEVOPS_JOBS_CHAT_ID")
 
 # ── Location filter ───────────────────────────────────────────────────────────
 # All job searches are scoped to this city. Change here to update everywhere.
-LOCATION = "Hyderabad"
+TARGET_LOCATIONS = ["Hyderabad", "Bangalore", "Chennai", "Pune", "Remote"]
 
 
 # ── Job Categories ────────────────────────────────────────────────────────────

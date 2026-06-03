@@ -36,11 +36,11 @@ import feedparser
 import time
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
-from config import LOCATION
+from config import TARGET_LOCATIONS
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-MAX_AGE_HOURS      = 2
+MAX_AGE_HOURS = 24
 RESULTS_PER_SOURCE = 25
 
 # Sources that are remote-only — location filtering doesn't apply to them.
@@ -56,6 +56,11 @@ BASE_HEADERS = {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+# Helper to get the primary location for URL construction
+def _get_api_location():
+    # Grab the first location, or default to "India" if the list is empty
+    return TARGET_LOCATIONS[0] if TARGET_LOCATIONS else "India"
 
 def _now_utc():
     return datetime.now(timezone.utc)
@@ -121,7 +126,7 @@ def _job(id, title, company, link, source, posted_at=None,
 
 def fetch_linkedin_jobs(keyword: str) -> list[dict]:
     kw  = keyword.replace(" ", "%20")
-    loc = LOCATION.replace(" ", "%20")
+    loc = _get_api_location().replace(" ", "%20")
     url = (
         f"https://www.linkedin.com/jobs/search/rss"
         f"?keywords={kw}&location={loc}&f_TPR=r7200&sortBy=DD&count={RESULTS_PER_SOURCE}"
@@ -213,8 +218,8 @@ def fetch_indeed_jobs(keyword: str) -> list[dict]:
     }
 
     rss_urls = [
-        f"https://in.indeed.com/rss?q={kw}&l={LOCATION}&sort=date&fromage=1",   # India first
-        f"https://www.indeed.com/rss?q={kw}&l={LOCATION}&sort=date&fromage=1",  # US fallback
+        f"https://in.indeed.com/rss?q={kw}&l={TARGET_LOCATIONS}&sort=date&fromage=1",   # India first
+        f"https://www.indeed.com/rss?q={kw}&l={TARGET_LOCATIONS}&sort=date&fromage=1",  # US fallback
     ]
     jobs = []
     for url in rss_urls:
@@ -266,62 +271,79 @@ def fetch_indeed_jobs(keyword: str) -> list[dict]:
 # Naukri's JSON API returns rich metadata: experience, location, skills, salary.
 
 def fetch_naukri_jobs(keyword: str) -> list[dict]:
+    """
+    Fetches jobs from Naukri's internal API.
+    Uses v3 as primary, falls back to v2 if necessary.
+    """
     kw_encoded = keyword.replace(" ", "%20")
-    kw_slug    = keyword.replace(" ", "-").lower()
-    loc_encoded = LOCATION.replace(" ", "%20")
+    kw_slug = keyword.replace(" ", "-").lower()
+    
+    # Use the first location in your list as the API anchor
+    # Ensure _get_api_location() is defined or imported from your fetchers scope
+    loc_encoded = _get_api_location().replace(" ", "%20")
 
-    # Naukri v3 API — mimics the browser request exactly.
-    # 406 happens when Accept header doesn't match what the API expects.
+    # Naukri v3 API parameters
     url = (
         f"https://www.naukri.com/jobapi/v3/search"
         f"?noOfResults={RESULTS_PER_SOURCE}&urlType=search_by_keyword"
         f"&searchType=adv&keyword={kw_encoded}&location={loc_encoded}&pageNo=1"
-        f"&k={kw_encoded}&seoKey={kw_slug}-jobs-in-{LOCATION.lower()}&src=jobsearchDesk&latLong="
+        f"&k={kw_encoded}&seoKey={kw_slug}-jobs-in-{_get_api_location().lower()}&src=jobsearchDesk&latLong="
     )
+    
     headers = {
-        **BASE_HEADERS,
-        "appid":          "109",
-        "systemid":       "Naukri",
-        "Accept":         "application/json, text/plain, */*",  # broader Accept fixes 406
-        "Accept-Encoding":"gzip, deflate, br",
-        "Connection":     "keep-alive",
-        "Referer":        f"https://www.naukri.com/{kw_slug}-jobs",
-        "Origin":         "https://www.naukri.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "appid": "109",
+        "systemid": "Naukri",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.naukri.com/",
     }
+
     try:
-        resp = requests.get(url, headers=headers, timeout=30)
-        print(f"    [{resp.status_code}] Naukri API for '{keyword}'")
-        if resp.status_code != 200:
-            # Fallback: try v2 endpoint which is less strict
-            url_v2 = (
-                f"https://www.naukri.com/jobapi/v2/search"
-                f"?noOfResults={RESULTS_PER_SOURCE}&urlType=search_by_keyword"
-                f"&searchType=adv&keyword={kw_encoded}&pageNo=1&src=jobsearchDesk"
-            )
-            resp = requests.get(url_v2, headers=headers, timeout=30)
-            print(f"    [{resp.status_code}] Naukri v2 fallback for '{keyword}'")
+        # Use a session object to keep cookies alive, which Naukri often expects
+        with requests.Session() as s:
+            # Attempt primary request
+            resp = requests.get(url, headers=headers, timeout=15)
+        
+            # If v3 fails, try v2 fallback
             if resp.status_code != 200:
+                url_v2 = (
+                    f"https://www.naukri.com/jobapi/v2/search"
+                    f"?noOfResults={RESULTS_PER_SOURCE}&urlType=search_by_keyword"
+                    f"&searchType=adv&keyword={kw_encoded}&pageNo=1&src=jobsearchDesk"
+                )
+                resp = requests.get(url_v2, headers=headers, timeout=15)
+                
+            # Validate if response is actually JSON before parsing
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                except ValueError:
+                    print(f"    [ERR] Naukri returned invalid JSON for '{keyword}'")
+                    return []
+            else:
+                print(f"    [!] Naukri returned status {resp.status_code} for '{keyword}'")
                 return []
-        data = resp.json()
+            
     except Exception as e:
-        print(f"    [ERR] Naukri: {e}")
+        print(f"    [ERR] Naukri connection error: {e}")
         return []
 
+    # Map API data to your standard internal job dictionary
     jobs = []
-    for job in data.get("jobDetails", [])[:RESULTS_PER_SOURCE]:
+    for job in data.get("jobDetails", []):
         try:
-            title   = job.get("title", "").strip()
+            title = job.get("title", "").strip()
             company = job.get("companyName", "Unknown").strip()
-            link    = job.get("jdURL") or f"https://www.naukri.com/job-listings-{job.get('jobId', '')}"
-            job_id  = str(job.get("jobId", link))
+            link = job.get("jdURL") or f"https://www.naukri.com/job-listings-{job.get('jobId', '')}"
+            job_id = str(job.get("jobId", link))
 
-            # Timestamp (epoch ms)
+            # Convert epoch ms to datetime
             created_ms = job.get("createdDate") or job.get("modifiedDate")
-            posted_at  = (datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc)
-                          if created_ms else None)
+            posted_at = (datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc)
+                         if created_ms else None)
 
-            # Location — may be a list of dicts or a string
-            raw_loc  = job.get("placeholders", [])
+            # Extract location string
+            raw_loc = job.get("placeholders", [])
             location = None
             if isinstance(raw_loc, list):
                 loc_parts = [p.get("label", "") for p in raw_loc if p.get("type") == "location"]
@@ -329,37 +351,31 @@ def fetch_naukri_jobs(keyword: str) -> list[dict]:
             if not location:
                 location = job.get("location") or None
 
-            # Experience
+            # Map experience
             exp_min = job.get("minimumExperience")
             exp_max = job.get("maximumExperience")
-            if exp_min is not None and exp_max is not None:
-                experience = f"{exp_min}–{exp_max} yrs"
-            elif exp_min is not None:
-                experience = f"{exp_min}+ yrs"
-            else:
-                experience = job.get("experienceText") or None
+            experience = f"{exp_min}–{exp_max} yrs" if (exp_min is not None and exp_max is not None) else None
 
-            # Skills / tags
+            # Extract skills/tags
             skills = job.get("tagsAndSkills", "") or ""
-            tags   = [s.strip() for s in skills.split(",") if s.strip()][:6]
+            tags = [s.strip() for s in skills.split(",") if s.strip()][:6]
 
-            # Job type
-            job_type = job.get("jobTypeLabel") or job.get("employmentType") or None
-
+            # Append using your canonical factory
             jobs.append(_job(
-                id         = job_id,
-                title      = title,
-                company    = company,
-                link       = link,
-                source     = "Naukri",
-                posted_at  = posted_at,
-                location   = location,
-                job_type   = job_type,
-                experience = experience,
-                tags       = tags,
+                id=job_id,
+                title=title,
+                company=company,
+                link=link,
+                source="Naukri",
+                posted_at=posted_at,
+                location=location,
+                job_type=job.get("jobTypeLabel") or job.get("employmentType"),
+                experience=experience,
+                tags=tags
             ))
         except Exception:
             continue
+            
     return jobs
 
 
@@ -507,7 +523,7 @@ def fetch_remoteok_jobs(keyword: str) -> list[dict]:
 
 SOURCES = [
     ("LinkedIn",        fetch_linkedin_jobs),
-    ("Indeed",          fetch_indeed_jobs),
+    # ("Indeed",          fetch_indeed_jobs),
     ("Naukri",          fetch_naukri_jobs),
     ("Remotive",        fetch_remotive_jobs),
     ("WeWorkRemotely",  fetch_wwr_jobs),
@@ -516,21 +532,31 @@ SOURCES = [
 
 
 def _is_location_match(job: dict) -> bool:
-    """
-    For non-remote sources, drop jobs whose location field is set but doesn't
-    mention our target city. Jobs with no location field pass through (we trust
-    the source's server-side filtering did the job).
-    """
-    if job["source"] in REMOTE_ONLY_SOURCES:
-        return True  # Remote boards — location is always valid
-    loc = (job.get("location") or "").lower()
-    if not loc:
-        return True  # No location data — trust the source filter
-    return LOCATION.lower() in loc
+    # 1. Bypass check for dedicated remote boards
+    if job.get("source") in REMOTE_ONLY_SOURCES:
+        return True
+    
+    job_loc = (job.get("location") or "").lower()
+    
+    # 2. Accept if the job explicitly mentions 'remote'
+    if "remote" in job_loc:
+        return True
+        
+    # 3. Accept if no location is provided (don't filter blindly)
+    if not job_loc:
+        return True
+    
+    # 4. Check if ANY city in our list is found in the job's location string
+    # e.g., if job_loc is "Senior Dev, Bangalore", it will match "bangalore"
+
+    is_match = any(city.lower() in job_loc for city in TARGET_LOCATIONS)
+    if not is_match and job.get("source") not in REMOTE_ONLY_SOURCES:
+        print(f"[DEBUG] Dropped job in '{job_loc}' — not in target list")
+    return is_match
 
 
 def fetch_all_jobs(keyword: str) -> list[dict]:
-    print(f"\n📡 [{keyword}] — {LOCATION}")
+    print(f"\n📡 [{keyword}] — {TARGET_LOCATIONS}")
     seen_ids = set()
     all_jobs = []
 
@@ -544,8 +570,8 @@ def fetch_all_jobs(keyword: str) -> list[dict]:
                 seen_ids.add(j["id"])
             all_jobs.extend(new)
             filtered_out = len(recent) - len(local)
-            print(f"  ✅ {name}: {len(results)} fetched → {len(new)} new & recent"
-                  + (f" ({filtered_out} wrong location)" if filtered_out else ""))
+            # Add this to fetch_all_jobs()
+            print(f" ✅ {name}: {len(results)} fetched → {len(new)} new & recent (filtered: {len(results) - len(new)})")
         except Exception as e:
             print(f"  ❌ {name} error: {e}")
         time.sleep(0.5)

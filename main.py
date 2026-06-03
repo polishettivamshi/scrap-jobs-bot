@@ -11,8 +11,13 @@ MAX_SENT_HISTORY = 5000  # Trim to avoid unbounded file growth
 
 def load_sent_jobs() -> set:
     if os.path.exists(SENT_FILE):
-        with open(SENT_FILE, "r") as f:
-            return set(json.load(f))
+        try:
+            with open(SENT_FILE, "r") as f:
+                data = json.load(f)
+                return set(data)
+        except json.JSONDecodeError:
+            print(f"⚠️ Warning: {SENT_FILE} was empty or invalid. Starting fresh.")
+            return set() # Return empty set if file is corrupt
     return set()
 
 
