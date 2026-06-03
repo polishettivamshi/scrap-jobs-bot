@@ -26,7 +26,6 @@ def main():
                     # 3. Post to Telegram
                     send_telegram_message(config["chat_id"], format_job_message(job))
                     sent_jobs.append(job["id"])
-                    time.sleep(2)
 
     # 4. Save state
     with open(SENT_FILE, "w") as f:

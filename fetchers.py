@@ -82,7 +82,7 @@ def fetch_naukri_jobs(keyword):
 def fetch_all_jobs(keyword):
     all_jobs = []
     all_jobs.extend(fetch_linkedin_jobs(keyword))
-    time.sleep(2)
+    # time.sleep(1)
     # Indeed is skipped due to 403 blocks
     all_jobs.extend(fetch_naukri_jobs(keyword))
     return all_jobs
