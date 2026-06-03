@@ -3,6 +3,7 @@ import os
 import json
 import time
 from datetime import datetime, timezone, timedelta
+from main import push_to_github
 
 IST        = timezone(timedelta(hours=5, minutes=30))
 STATE_FILE = "last_run.json"
@@ -28,8 +29,11 @@ def get_last_run_time() -> datetime:
 
 
 def save_last_run_time():
+    # Write to local ephemeral disk
     with open(STATE_FILE, "w") as f:
         json.dump({"timestamp": datetime.now(IST).isoformat()}, f)
+    # Sync to GitHub
+    push_to_github(STATE_FILE)
 
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
