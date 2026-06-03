@@ -2,15 +2,22 @@ name: Job Scraper Bot
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # Runs every 5 minutes
-  workflow_dispatch:        # Allows manual triggering from GitHub UI
+    - cron: '*/15 * * * *'  # Every 15 min — safe for 16 keywords × 6 sources (~3-4 min runtime)
+  workflow_dispatch:          # Manual trigger from GitHub UI
+
+# Prevent overlapping runs — if a new run starts while one is active,
+# cancel the in-progress one so state files don't conflict.
+concurrency:
+  group: job-scraper
+  cancel-in-progress: true
 
 permissions:
-  contents: write           # Required to push changes back to the repo
+  contents: write
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,27 +27,36 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'  # 3.10 works but 3.11 is faster and more stable on runners
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 python-dotenv
+          pip install requests beautifulsoup4 python-dotenv feedparser
 
       - name: Run Scraper
         env:
-          SST_BOT_TOKEN: ${{ secrets.SST_BOT_TOKEN }}
-          SST_BACKEND_JOBS_CHAT_ID: ${{ secrets.SST_BACKEND_JOBS_CHAT_ID }}
-          SST_FRONTEND_JOBS_CHAT_ID: ${{ secrets.SST_FRONTEND_JOBS_CHAT_ID }}
-          SST_DEVOPS_JOBS_CHAT_ID: ${{ secrets.SST_DEVOPS_JOBS_CHAT_ID }}
+          SST_BOT_TOKEN:               ${{ secrets.SST_BOT_TOKEN }}
+          SST_BACKEND_JOBS_CHAT_ID:    ${{ secrets.SST_BACKEND_JOBS_CHAT_ID }}
+          SST_FRONTEND_JOBS_CHAT_ID:   ${{ secrets.SST_FRONTEND_JOBS_CHAT_ID }}
+          SST_DEVOPS_JOBS_CHAT_ID:     ${{ secrets.SST_DEVOPS_JOBS_CHAT_ID }}
         run: python main.py
 
-      - name: Commit and Push changes
+      - name: Commit and push state files
         run: |
-          git config user.name 'github-actions'
-          git config user.email 'github-actions@github.com'
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add sent_jobs.json last_run.json
-          # Only commit and push if there are changes to avoid empty commits
-          git commit -m "Update state files [skip ci]" || exit 0
+
+          # Exit cleanly if nothing changed (no new jobs found)
+          if git diff --cached --quiet; then
+            echo "No state changes — skipping commit."
+            exit 0
+          fi
+
+          # Pull latest before pushing to avoid conflicts from concurrent runs
+          git pull --rebase origin main
+
+          git commit -m "chore: update state files [skip ci]"
           git push
