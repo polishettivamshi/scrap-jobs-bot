@@ -14,6 +14,30 @@ SENT_FILE = "sent_jobs.json"
 MAX_SENT_HISTORY = 5000  # Trim to avoid unbounded file growth
 
 
+def push_to_github(file_path):
+    token = os.getenv("GITHUB_TOKEN")
+    repo = os.getenv("GITHUB_REPO") # Format: "username/repo"
+    url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    
+    # 1. Get the current file's SHA (required by GitHub to update a file)
+    headers = {"Authorization": f"token {token}"}
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code == 200:
+        sha = response.json()['sha']
+        
+        # 2. Upload the new content
+        with open(file_path, "r") as f:
+            content = f.read()
+            
+        payload = {
+            "message": f"chore: update {file_path} from Render",
+            "content": base64.b64encode(content.encode()).decode(),
+            "sha": sha
+        }
+        requests.put(url, headers=headers, json=payload)
+
+
 def load_sent_jobs() -> set:
     if os.path.exists(SENT_FILE):
         try:
@@ -55,29 +79,6 @@ def pull_from_github(file_path):
     else:
         print(f"⚠️ Could not pull {file_path} from GitHub (Status: {response.status_code})")
 
-
-def push_to_github(file_path):
-    token = os.getenv("GITHUB_TOKEN")
-    repo = os.getenv("GITHUB_REPO") # Format: "username/repo"
-    url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-    
-    # 1. Get the current file's SHA (required by GitHub to update a file)
-    headers = {"Authorization": f"token {token}"}
-    response = requests.get(url, headers=headers)
-    
-    if response.status_code == 200:
-        sha = response.json()['sha']
-        
-        # 2. Upload the new content
-        with open(file_path, "r") as f:
-            content = f.read()
-            
-        payload = {
-            "message": f"chore: update {file_path} from Render",
-            "content": base64.b64encode(content.encode()).decode(),
-            "sha": sha
-        }
-        requests.put(url, headers=headers, json=payload)
 
 def main():
     pull_from_github(SENT_FILE)
