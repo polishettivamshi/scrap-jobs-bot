@@ -73,7 +73,12 @@ logger.setLevel(logging.INFO)
 # Avoid adding duplicate handlers if the module is re-imported
 if not logger.handlers:
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    
+    # Only show logs in the console if we are running on a server (Render)
+    is_server = os.getenv("RENDER") == "true" or os.getenv("PORT") is not None
+    if is_server:
+        logger.addHandler(console_handler)
+
 
 def log_print(*args, **kwargs):
     # Join arguments with spaces, clean icons, and log
