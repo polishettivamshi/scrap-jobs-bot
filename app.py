@@ -1,9 +1,12 @@
 import os
 import threading
+import subprocess
+import sys
 from flask import Flask, jsonify, request, abort
-from main import main as run_scraper
+from dotenv import load_dotenv
 from logger import log_print as print
 
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -28,14 +31,20 @@ def trigger_scrape():
     if scrape_lock.locked():
         return jsonify({"status": "error", "message": "Scraper already running"}), 429
     
-    # 3. Start the job in a background thread
+    # 3. Start the job in a background thread using a subprocess
     # We do this so the HTTP response returns immediately to cron-job.org
     def run_job():
         with scrape_lock:
             try:
-                run_scraper()
+                print("Starting scraper subprocess...")
+                result = subprocess.run(
+                    [sys.executable, "main.py"],
+                    stdout=sys.stdout,
+                    stderr=sys.stderr
+                )
+                print(f"Scraper subprocess finished with exit code {result.returncode}")
             except Exception as e:
-                print(f"Scraper crashed: {e}")
+                print(f"Failed to run scraper subprocess: {e}")
 
     threading.Thread(target=run_job).start()
     
