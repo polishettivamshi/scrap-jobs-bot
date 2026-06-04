@@ -21,6 +21,54 @@ SECRET_KEY = os.getenv("SCRAPER_API_KEY", "your-super-secret-key")
 def ping():
     return jsonify({"response": "pong"})
 
+
+@app.route('/status', methods=['GET'])
+def status():
+    """Quick health check — shows whether the scraper is currently running."""
+    if request.headers.get("X-API-KEY") != SECRET_KEY:
+        abort(403)
+    log_path = os.path.join("logs", "app.log")
+    log_info = {}
+    if os.path.exists(log_path):
+        stat = os.stat(log_path)
+        from datetime import datetime, timezone
+        log_info = {
+            "size_bytes": stat.st_size,
+            "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        }
+    return jsonify({
+        "scraper_running": scrape_lock.locked(),
+        "log": log_info,
+    })
+
+
+@app.route('/logs', methods=['GET'])
+def get_logs():
+    """
+    Returns the last N lines of logs/app.log as plain text.
+    Secured with the X-API-KEY header.
+    Optional query param: ?lines=2000 (default 2000, max 3000)
+    """
+    if request.headers.get("X-API-KEY") != SECRET_KEY:
+        abort(403)
+
+    try:
+        n = min(int(request.args.get("lines", 2000)), 3000)
+    except (ValueError, TypeError):
+        n = 2000
+
+    log_path = os.path.join("logs", "app.log")
+    if not os.path.exists(log_path):
+        return "Log file not found. The scraper may not have run yet.", 404
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        tail = "".join(lines[-n:])
+        return tail, 200, {"Content-Type": "text/plain; charset=utf-8"}
+    except Exception as e:
+        return f"Error reading log file: {e}", 500
+
 @app.route('/trigger-scrape', methods=['POST'])
 def trigger_scrape():
     # 1. Simple Security: Only allow requests with your secret key
