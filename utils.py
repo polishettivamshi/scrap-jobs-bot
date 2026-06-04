@@ -4,9 +4,11 @@ import json
 import time
 from datetime import datetime, timezone, timedelta
 from services import push_to_github
+from logger import log_print as print
 
 IST        = timezone(timedelta(hours=5, minutes=30))
 STATE_FILE = "last_run.json"
+
 
 # Source → emoji badge
 SOURCE_BADGES = {
@@ -74,13 +76,30 @@ def send_telegram_message(chat_id: str, message: str, _retries: int = 3):
 
 # ── Message formatter ─────────────────────────────────────────────────────────
 
+def escape_markdown(text: str) -> str:
+    if not text:
+        return ""
+    # Escape special characters for Telegram Markdown v1: _, *, [, `
+    for char in ["_", "*", "[", "`"]:
+        text = text.replace(char, f"\\{char}")
+    return text
+
+
+# ── Message formatter ─────────────────────────────────────────────────────────
+
 def format_job_message(job: dict) -> str:
     source_badge = SOURCE_BADGES.get(job["source"], f"🌐 {job['source']}")
 
+    title = escape_markdown(job.get("title", ""))
+    company = escape_markdown(job.get("company", ""))
+    location = escape_markdown(job.get("location", ""))
+    job_type = escape_markdown(job.get("job_type", ""))
+    experience = escape_markdown(job.get("experience", ""))
+
     # Optional fields — only rendered if the source provides them
-    location_line   = f"\n📍 *Location:* {job['location']}"       if job.get("location")   else ""
-    type_line       = f"\n⏱ *Type:* {job['job_type']}"            if job.get("job_type")   else ""
-    exp_line        = f"\n🎯 *Experience:* {job['experience']}"    if job.get("experience") else ""
+    location_line   = f"\n📍 *Location:* {location}"       if location   else ""
+    type_line       = f"\n⏱ *Type:* {job_type}"            if job_type   else ""
+    exp_line        = f"\n🎯 *Experience:* {experience}"    if experience else ""
 
     posted_line = ""
     if job.get("posted_at"):
@@ -95,13 +114,15 @@ def format_job_message(job: dict) -> str:
 
     tags_line = ""
     if job.get("tags"):
-        tags_line = "\n🏷 " + "  ".join(f"`{t}`" for t in job["tags"][:6])
+        # Escape individual tags
+        escaped_tags = [escape_markdown(t) for t in job["tags"][:6]]
+        tags_line = "\n🏷 " + "  ".join(f"`{t}`" for t in escaped_tags)
 
     return (
         f"🚀 *New Job Posted*\n"
         f"\n"
-        f"💼 *Role:* {job['title']}\n"
-        f"🏢 *Company:* {job['company']}"
+        f"💼 *Role:* {title}\n"
+        f"🏢 *Company:* {company}"
         f"{location_line}"
         f"{type_line}"
         f"{exp_line}"
@@ -116,4 +137,5 @@ def format_job_message(job: dict) -> str:
 
 
 def _now_utc():
+
     return datetime.now(timezone.utc)

@@ -2,6 +2,8 @@ import os
 import threading
 from flask import Flask, jsonify, request, abort
 from main import main as run_scraper
+from logger import log_print as print
+
 
 app = Flask(__name__)
 

@@ -7,5 +7,6 @@
 
 # Logs
 /*.log
+/logs/
 
-.vscode/
+.vscode/

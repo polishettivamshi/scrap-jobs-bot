@@ -37,6 +37,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from config import TARGET_LOCATIONS
+from logger import log_print as print
+
 
 IST = timezone(timedelta(hours=5, minutes=30))
 

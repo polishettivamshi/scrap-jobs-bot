@@ -8,9 +8,10 @@ from fetchers import fetch_all_jobs
 from utils import send_telegram_message, format_job_message, get_last_run_time, save_last_run_time, STATE_FILE
 from dotenv import load_dotenv
 from services import push_to_github
-
+from logger import log_print as print
 
 load_dotenv()
+
 
 SENT_FILE = "sent_jobs.json"
 MAX_SENT_HISTORY = 5000  # Trim to avoid unbounded file growth
@@ -86,6 +87,10 @@ def main():
                     time.sleep(1.5)  # Telegram allows ~20 msg/min to same chat; 1.5s ≈ safe
 
             print(f"  📨 Sent {new_count} new jobs for '{keyword}'")
+
+            # Save state incrementally to prevent losing progress if the process is terminated/restarted
+            if new_count > 0:
+                save_sent_jobs(sent_jobs)
 
         time.sleep(1)  # Brief pause between categories
 

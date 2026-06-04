@@ -2,8 +2,10 @@ import os
 import requests
 import base64
 from dotenv import load_dotenv
+from logger import log_print as print
 
 load_dotenv()
+
 
 def push_to_github(file_path):
     token = os.getenv("GITHUB_TOKEN")

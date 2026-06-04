@@ -1,8 +1,10 @@
 import os
 import sys
 from dotenv import load_dotenv
+from logger import log_print as print
 
 load_dotenv()
+
 
 # ── Chat IDs ──────────────────────────────────────────────────────────────────
 
