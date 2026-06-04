@@ -91,6 +91,8 @@ def main():
             # Save state incrementally to prevent losing progress if the process is terminated/restarted
             if new_count > 0:
                 save_sent_jobs(sent_jobs)
+                save_last_run_time()
+
 
         time.sleep(1)  # Brief pause between categories
 
