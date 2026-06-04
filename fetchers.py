@@ -38,6 +38,8 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from config import TARGET_LOCATIONS
 
+IST = timezone(timedelta(hours=5, minutes=30))
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 MAX_AGE_HOURS = 24
@@ -125,82 +127,89 @@ def _job(id, title, company, link, source, posted_at=None,
 # ── Source 1: LinkedIn RSS ────────────────────────────────────────────────────
 
 def fetch_linkedin_jobs(keyword: str) -> list[dict]:
-    kw  = keyword.replace(" ", "%20")
-    loc = _get_api_location().replace(" ", "%20")
-    url = (
-        f"https://www.linkedin.com/jobs/search/rss"
-        f"?keywords={kw}&location={loc}&f_TPR=r7200&sortBy=DD&count={RESULTS_PER_SOURCE}"
-    )
-    feed = feedparser.parse(url)
-
-    if not feed.entries:
-        # Fallback: guest jobs API
-        url2 = (
-            f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
-            f"?keywords={kw}&location={loc}&f_TPR=r7200&sortBy=DD&start=0"
-        )
-        resp = _safe_request(url2)
-        if not resp:
-            return []
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(resp.text, "html.parser")
-        jobs = []
-        for card in soup.select("li")[:RESULTS_PER_SOURCE]:
-            try:
-                a         = card.find("a", href=True)
-                title_el  = card.find(class_=lambda c: c and "title"   in c.lower()) or card.find("h3") or card.find("h2")
-                company_el= card.find(class_=lambda c: c and "company" in c.lower()) or card.find("h4")
-                location_el=card.find(class_=lambda c: c and "location" in c.lower())
-                if not (a and title_el):
-                    continue
-                link = a["href"].split("?")[0]
-                jobs.append(_job(
-                    id       = link,
-                    title    = title_el.get_text(strip=True),
-                    company  = company_el.get_text(strip=True) if company_el else "Unknown",
-                    link     = link,
-                    source   = "LinkedIn",
-                    location = location_el.get_text(strip=True) if location_el else None,
-                ))
-            except Exception:
-                continue
-        return jobs
-
     jobs = []
-    for entry in feed.entries[:RESULTS_PER_SOURCE]:
-        try:
-            posted_at = (_parse_struct_time(entry.get("published_parsed"))
-                         or _parse_rfc2822(entry.get("published")))
-            link  = entry.get("link", "").split("?")[0]
-            title = entry.get("title", "").strip()
-            company = "Unknown"
-            if " at " in title:
-                title, company = title.rsplit(" at ", 1)
-                title, company = title.strip(), company.strip()
+    seen_links = set()
+    
+    for location in TARGET_LOCATIONS:
+        kw  = keyword.replace(" ", "%20")
+        loc = location.replace(" ", "%20")
+        url = (
+            f"https://www.linkedin.com/jobs/search/rss"
+            f"?keywords={kw}&location={loc}&f_TPR=r7200&sortBy=DD&count={RESULTS_PER_SOURCE}"
+        )
+        feed = feedparser.parse(url)
 
-            # Location is sometimes in the summary
-            location = None
-            summary  = entry.get("summary", "")
-            if summary:
+        if not feed.entries:
+            # Fallback: guest jobs API
+            url2 = (
+                f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+                f"?keywords={kw}&location={loc}&f_TPR=r7200&sortBy=DD&start=0"
+            )
+            resp = _safe_request(url2)
+            if resp:
                 from bs4 import BeautifulSoup
-                loc_soup = BeautifulSoup(summary, "html.parser")
-                text = loc_soup.get_text(" ", strip=True)
-                # LinkedIn summary often ends with "· Location"
-                if "·" in text:
-                    parts = [p.strip() for p in text.split("·")]
-                    location = parts[-1] if parts else None
+                soup = BeautifulSoup(resp.text, "html.parser")
+                for card in soup.select("li")[:RESULTS_PER_SOURCE]:
+                    try:
+                        a         = card.find("a", href=True)
+                        title_el  = card.find(class_=lambda c: c and "title"   in c.lower()) or card.find("h3") or card.find("h2")
+                        company_el= card.find(class_=lambda c: c and "company" in c.lower()) or card.find("h4")
+                        location_el=card.find(class_=lambda c: c and "location" in c.lower())
+                        if not (a and title_el):
+                            continue
+                        link = a["href"].split("?")[0]
+                        if link in seen_links:
+                            continue
+                        seen_links.add(link)
+                        jobs.append(_job(
+                            id       = link,
+                            title    = title_el.get_text(strip=True),
+                            company  = company_el.get_text(strip=True) if company_el else "Unknown",
+                            link     = link,
+                            source   = "LinkedIn",
+                            location = location_el.get_text(strip=True) if location_el else location,
+                        ))
+                    except Exception:
+                        continue
+        else:
+            for entry in feed.entries[:RESULTS_PER_SOURCE]:
+                try:
+                    posted_at = (_parse_struct_time(entry.get("published_parsed"))
+                                 or _parse_rfc2822(entry.get("published")))
+                    link  = entry.get("link", "").split("?")[0]
+                    if link in seen_links:
+                        continue
+                    title = entry.get("title", "").strip()
+                    company = "Unknown"
+                    if " at " in title:
+                        title, company = title.rsplit(" at ", 1)
+                        title, company = title.strip(), company.strip()
 
-            jobs.append(_job(
-                id        = link,
-                title     = title,
-                company   = company,
-                link      = link,
-                source    = "LinkedIn",
-                posted_at = posted_at,
-                location  = location,
-            ))
-        except Exception:
-            continue
+                    # Location is sometimes in the summary
+                    job_location = None
+                    summary  = entry.get("summary", "")
+                    if summary:
+                        from bs4 import BeautifulSoup
+                        loc_soup = BeautifulSoup(summary, "html.parser")
+                        text = loc_soup.get_text(" ", strip=True)
+                        # LinkedIn summary often ends with "· Location"
+                        if "·" in text:
+                            parts = [p.strip() for p in text.split("·")]
+                            job_location = parts[-1] if parts else None
+
+                    seen_links.add(link)
+                    jobs.append(_job(
+                        id        = link,
+                        title     = title,
+                        company   = company,
+                        link      = link,
+                        source    = "LinkedIn",
+                        posted_at = posted_at,
+                        location  = job_location or location,
+                    ))
+                except Exception:
+                    continue
+        time.sleep(0.5)
     return jobs
 
 
@@ -267,6 +276,39 @@ def fetch_indeed_jobs(keyword: str) -> list[dict]:
     return jobs
 
 
+def extract_naukri_v2_location(job: dict) -> str:
+    locations = []
+    city_val = (job.get("city") or "").lower()
+    locality_list = job.get("locality") or []
+    locality_city = ""
+    if isinstance(locality_list, list) and len(locality_list) > 0:
+        locality_city = (locality_list[0].get("city") or "").lower()
+        
+    is_remote = "remote" in city_val or "remote" in locality_city
+    is_hybrid = "hybrid" in city_val or "hybrid" in locality_city
+    
+    cityfield = (job.get("cityfield") or "").lower()
+    
+    if "hyderabad" in cityfield:
+        locations.append("Hyderabad")
+    if "bengaluru" in cityfield or "bangalore" in cityfield:
+        locations.append("Bangalore")
+    if "chennai" in cityfield:
+        locations.append("Chennai")
+    if "pune" in cityfield:
+        locations.append("Pune")
+    if "remote" in cityfield or is_remote:
+        locations.append("Remote")
+        
+    loc_str = ", ".join(locations) if locations else "Other"
+    if is_hybrid and "Remote" not in locations:
+        loc_str = f"Hybrid - {loc_str}"
+    elif is_remote and "Remote" not in locations:
+        loc_str = f"Remote - {loc_str}"
+        
+    return loc_str
+
+
 # ── Source 3: Naukri Internal API ─────────────────────────────────────────────
 # Naukri's JSON API returns rich metadata: experience, location, skills, salary.
 
@@ -274,21 +316,10 @@ def fetch_naukri_jobs(keyword: str) -> list[dict]:
     """
     Fetches jobs from Naukri's internal API.
     Uses v3 as primary, falls back to v2 if necessary.
+    Loops over all TARGET_LOCATIONS.
     """
-    kw_encoded = keyword.replace(" ", "%20")
-    kw_slug = keyword.replace(" ", "-").lower()
-    
-    # Use the first location in your list as the API anchor
-    # Ensure _get_api_location() is defined or imported from your fetchers scope
-    loc_encoded = _get_api_location().replace(" ", "%20")
-
-    # Naukri v3 API parameters
-    url = (
-        f"https://www.naukri.com/jobapi/v3/search"
-        f"?noOfResults={RESULTS_PER_SOURCE}&urlType=search_by_keyword"
-        f"&searchType=adv&keyword={kw_encoded}&location={loc_encoded}&pageNo=1"
-        f"&k={kw_encoded}&seoKey={kw_slug}-jobs-in-{_get_api_location().lower()}&src=jobsearchDesk&latLong="
-    )
+    jobs = []
+    seen_ids = set()
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -297,85 +328,135 @@ def fetch_naukri_jobs(keyword: str) -> list[dict]:
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.naukri.com/",
     }
+    
+    kw_encoded = keyword.replace(" ", "%20")
+    kw_slug = keyword.replace(" ", "-").lower()
 
-    try:
-        # Use a session object to keep cookies alive, which Naukri often expects
-        with requests.Session() as s:
-            # Attempt primary request
-            resp = requests.get(url, headers=headers, timeout=15)
+    for location in TARGET_LOCATIONS:
+        loc_encoded = location.replace(" ", "%20")
         
-            # If v3 fails, try v2 fallback
-            if resp.status_code != 200:
-                url_v2 = (
-                    f"https://www.naukri.com/jobapi/v2/search"
-                    f"?noOfResults={RESULTS_PER_SOURCE}&urlType=search_by_keyword"
-                    f"&searchType=adv&keyword={kw_encoded}&pageNo=1&src=jobsearchDesk"
-                )
-                resp = requests.get(url_v2, headers=headers, timeout=15)
-                
-            # Validate if response is actually JSON before parsing
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                except ValueError:
-                    print(f"    [ERR] Naukri returned invalid JSON for '{keyword}'")
-                    return []
-            else:
-                print(f"    [!] Naukri returned status {resp.status_code} for '{keyword}'")
-                return []
-            
-    except Exception as e:
-        print(f"    [ERR] Naukri connection error: {e}")
-        return []
-
-    # Map API data to your standard internal job dictionary
-    jobs = []
-    for job in data.get("jobDetails", []):
+        # Naukri v3 API parameters
+        url = (
+            f"https://www.naukri.com/jobapi/v3/search"
+            f"?noOfResults={RESULTS_PER_SOURCE}&urlType=search_by_keyword"
+            f"&searchType=adv&keyword={kw_encoded}&location={loc_encoded}&pageNo=1"
+            f"&k={kw_encoded}&seoKey={kw_slug}-jobs-in-{location.lower()}&src=jobsearchDesk&latLong="
+        )
+        
         try:
-            title = job.get("title", "").strip()
-            company = job.get("companyName", "Unknown").strip()
-            link = job.get("jdURL") or f"https://www.naukri.com/job-listings-{job.get('jobId', '')}"
-            job_id = str(job.get("jobId", link))
-
-            # Convert epoch ms to datetime
-            created_ms = job.get("createdDate") or job.get("modifiedDate")
-            posted_at = (datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc)
-                         if created_ms else None)
-
-            # Extract location string
-            raw_loc = job.get("placeholders", [])
-            location = None
-            if isinstance(raw_loc, list):
-                loc_parts = [p.get("label", "") for p in raw_loc if p.get("type") == "location"]
-                location = ", ".join(loc_parts) if loc_parts else None
-            if not location:
-                location = job.get("location") or None
-
-            # Map experience
-            exp_min = job.get("minimumExperience")
-            exp_max = job.get("maximumExperience")
-            experience = f"{exp_min}–{exp_max} yrs" if (exp_min is not None and exp_max is not None) else None
-
-            # Extract skills/tags
-            skills = job.get("tagsAndSkills", "") or ""
-            tags = [s.strip() for s in skills.split(",") if s.strip()][:6]
-
-            # Append using your canonical factory
-            jobs.append(_job(
-                id=job_id,
-                title=title,
-                company=company,
-                link=link,
-                source="Naukri",
-                posted_at=posted_at,
-                location=location,
-                job_type=job.get("jobTypeLabel") or job.get("employmentType"),
-                experience=experience,
-                tags=tags
-            ))
-        except Exception:
+            with requests.Session() as s:
+                resp = requests.get(url, headers=headers, timeout=15)
+                
+                # If v3 fails, try v2 fallback
+                if resp.status_code != 200:
+                    url_v2 = (
+                        f"https://www.naukri.com/jobapi/v2/search"
+                        f"?noOfResults={RESULTS_PER_SOURCE}&urlType=search_by_keyword"
+                        f"&searchType=adv&keyword={kw_encoded}&location={loc_encoded}&pageNo=1&src=jobsearchDesk"
+                    )
+                    resp = requests.get(url_v2, headers=headers, timeout=15)
+                
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                    except ValueError:
+                        print(f"    [ERR] Naukri returned invalid JSON for '{keyword}' in '{location}'")
+                        continue
+                else:
+                    print(f"    [!] Naukri returned status {resp.status_code} for '{keyword}' in '{location}'")
+                    continue
+        except Exception as e:
+            print(f"    [ERR] Naukri connection error for '{location}': {e}")
             continue
-            
+
+        jobs_data = data.get("jobDetails")
+        is_v2 = False
+        if jobs_data is None:
+            jobs_data = data.get("list", [])
+            is_v2 = True
+
+        for job in jobs_data:
+            try:
+                if is_v2:
+                    title = job.get("post", "").strip()
+                    company = job.get("companyName", "Unknown").strip()
+                    link = job.get("urlStr") or job.get("jdURL") or f"https://www.naukri.com/job-listings-{job.get('jobId', '')}"
+                    job_id = str(job.get("jobId", link))
+
+                    if job_id in seen_ids:
+                        continue
+
+                    # parse addDate "2026-06-02 17:42:44.0"
+                    add_date = job.get("addDate")
+                    posted_at = None
+                    if add_date:
+                        try:
+                            dt = datetime.strptime(add_date.split(".")[0], "%Y-%m-%d %H:%M:%S")
+                            dt_ist = dt.replace(tzinfo=IST)
+                            posted_at = dt_ist.astimezone(timezone.utc)
+                        except Exception:
+                            pass
+
+                    # extract location
+                    job_location = extract_naukri_v2_location(job)
+
+                    # experience
+                    exp_min = job.get("minExp")
+                    exp_max = job.get("maxExp")
+                    experience = f"{exp_min}–{exp_max} yrs" if (exp_min is not None and exp_max is not None) else None
+
+                    # tags
+                    skills = job.get("keywords", "") or ""
+                    tags = [s.strip() for s in skills.split(",") if s.strip()][:6]
+                else:
+                    title = job.get("title", "").strip()
+                    company = job.get("companyName", "Unknown").strip()
+                    link = job.get("jdURL") or f"https://www.naukri.com/job-listings-{job.get('jobId', '')}"
+                    job_id = str(job.get("jobId", link))
+
+                    if job_id in seen_ids:
+                        continue
+
+                    # Convert epoch ms to datetime
+                    created_ms = job.get("createdDate") or job.get("modifiedDate")
+                    posted_at = (datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc)
+                                 if created_ms else None)
+
+                    # Extract location string
+                    raw_loc = job.get("placeholders", [])
+                    job_location = None
+                    if isinstance(raw_loc, list):
+                        loc_parts = [p.get("label", "") for p in raw_loc if p.get("type") == "location"]
+                        job_location = ", ".join(loc_parts) if loc_parts else None
+                    if not job_location:
+                        job_location = job.get("location") or None
+
+                    # Map experience
+                    exp_min = job.get("minimumExperience")
+                    exp_max = job.get("maximumExperience")
+                    experience = f"{exp_min}–{exp_max} yrs" if (exp_min is not None and exp_max is not None) else None
+
+                    # Extract skills/tags
+                    skills = job.get("tagsAndSkills", "") or ""
+                    tags = [s.strip() for s in skills.split(",") if s.strip()][:6]
+
+                seen_ids.add(job_id)
+                jobs.append(_job(
+                    id=job_id,
+                    title=title,
+                    company=company,
+                    link=link,
+                    source="Naukri",
+                    posted_at=posted_at,
+                    location=job_location or location,
+                    job_type=job.get("jobTypeLabel") or job.get("employmentType"),
+                    experience=experience,
+                    tags=tags
+                ))
+            except Exception:
+                continue
+        time.sleep(0.5)
+        
     return jobs
 
 
@@ -548,8 +629,16 @@ def _is_location_match(job: dict) -> bool:
     
     # 4. Check if ANY city in our list is found in the job's location string
     # e.g., if job_loc is "Senior Dev, Bangalore", it will match "bangalore"
+    check_locations = []
+    for city in TARGET_LOCATIONS:
+        city_lower = city.lower()
+        check_locations.append(city_lower)
+        if city_lower == "bangalore":
+            check_locations.append("bengaluru")
+        elif city_lower == "bengaluru":
+            check_locations.append("bangalore")
 
-    is_match = any(city.lower() in job_loc for city in TARGET_LOCATIONS)
+    is_match = any(city in job_loc for city in check_locations)
     if not is_match and job.get("source") not in REMOTE_ONLY_SOURCES:
         print(f"[DEBUG] Dropped job in '{job_loc}' — not in target list")
     return is_match

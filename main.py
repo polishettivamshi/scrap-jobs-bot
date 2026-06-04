@@ -5,7 +5,8 @@ import requests
 import base64
 from config import JOB_CATEGORIES
 from fetchers import fetch_all_jobs
-from utils import send_telegram_message, format_job_message, get_last_run_time, save_last_run_time
+from utils import send_telegram_message, format_job_message, get_last_run_time, save_last_run_time, STATE_FILE
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 from services import push_to_github
 
@@ -59,6 +60,7 @@ def pull_from_github(file_path):
 
 def main():
     pull_from_github(SENT_FILE)
+    pull_from_github(STATE_FILE)
     last_run = get_last_run_time()
     sent_jobs = load_sent_jobs()
     total_sent = 0

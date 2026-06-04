@@ -23,8 +23,12 @@ SOURCE_BADGES = {
 
 def get_last_run_time() -> datetime:
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            return datetime.fromisoformat(json.load(f)["timestamp"])
+        try:
+            with open(STATE_FILE, "r") as f:
+                data = json.load(f)
+                return datetime.fromisoformat(data["timestamp"])
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            print(f"⚠️ Warning: {STATE_FILE} was empty, corrupt, or invalid. Starting fresh. Error: {e}")
     return datetime.now(IST).replace(microsecond=0)
 
 

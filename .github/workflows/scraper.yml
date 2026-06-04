@@ -1,8 +1,6 @@
 name: Job Scraper Bot
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'  # Every 15 min — safe for 16 keywords × 6 sources (~3-4 min runtime)
   workflow_dispatch:          # Manual trigger from GitHub UI
 
 # Prevent overlapping runs — if a new run starts while one is active,
