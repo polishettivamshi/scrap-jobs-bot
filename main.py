@@ -6,9 +6,9 @@ import base64
 from config import JOB_CATEGORIES
 from fetchers import fetch_all_jobs
 from utils import send_telegram_message, format_job_message, get_last_run_time, save_last_run_time, STATE_FILE
-# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 from services import push_to_github
+
 
 load_dotenv()
 
