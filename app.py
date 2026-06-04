@@ -12,6 +12,10 @@ scrape_lock = threading.Lock()
 # Ensure you have this set in your environment variables on Render
 SECRET_KEY = os.getenv("SCRAPER_API_KEY", "your-super-secret-key")
 
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({"response": "pong"})
+
 @app.route('/trigger-scrape', methods=['POST'])
 def trigger_scrape():
     # 1. Simple Security: Only allow requests with your secret key
