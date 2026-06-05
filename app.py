@@ -4,7 +4,7 @@ import subprocess
 import sys
 from flask import Flask, jsonify, request, abort
 from dotenv import load_dotenv
-from logger import log_print as print
+from logger import log_print as print, MEMORY_LOG_BUFFER
 
 load_dotenv()
 
@@ -28,14 +28,18 @@ def status():
     if request.headers.get("X-API-KEY") != SECRET_KEY:
         abort(403)
     log_path = os.path.join("logs", "app.log")
-    log_info = {}
+    log_info = {
+        "memory_buffer_lines": len(MEMORY_LOG_BUFFER),
+        "file_exists": False,
+        "size_bytes": 0,
+        "last_modified": None,
+    }
     if os.path.exists(log_path):
         stat = os.stat(log_path)
         from datetime import datetime, timezone
-        log_info = {
-            "size_bytes": stat.st_size,
-            "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-        }
+        log_info["file_exists"] = True
+        log_info["size_bytes"] = stat.st_size
+        log_info["last_modified"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
     return jsonify({
         "scraper_running": scrape_lock.locked(),
         "log": log_info,
@@ -45,7 +49,8 @@ def status():
 @app.route('/logs', methods=['GET'])
 def get_logs():
     """
-    Returns the last N lines of logs/app.log as plain text.
+    Returns the last N lines of logs as plain text.
+    Source priority: in-memory buffer (always available) → file fallback.
     Secured with the X-API-KEY header.
     Optional query param: ?lines=2000 (default 2000, max 3000)
     """
@@ -57,14 +62,25 @@ def get_logs():
     except (ValueError, TypeError):
         n = 2000
 
+    # Prefer in-memory buffer (always works on Render's ephemeral filesystem)
+    if MEMORY_LOG_BUFFER:
+        lines = list(MEMORY_LOG_BUFFER)[-n:]
+        tail = "\n".join(lines) + "\n"
+        return tail, 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+    # Fallback: try the log file
     log_path = os.path.join("logs", "app.log")
     if not os.path.exists(log_path):
-        return "Log file not found. The scraper may not have run yet.", 404
+        return (
+            "No logs available yet. The in-memory buffer is empty and the log file does not exist.\n"
+            "This usually means the server just restarted — trigger a scrape run to generate logs.",
+            404,
+        )
 
     try:
         with open(log_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        tail = "".join(lines[-n:])
+            file_lines = f.readlines()
+        tail = "".join(file_lines[-n:])
         return tail, 200, {"Content-Type": "text/plain; charset=utf-8"}
     except Exception as e:
         return f"Error reading log file: {e}", 500
