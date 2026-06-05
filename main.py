@@ -49,8 +49,11 @@ def save_sent_jobs(sent: set):
 
 def pull_from_github(file_path):
     token = os.getenv("GITHUB_TOKEN")
-    repo = os.getenv("GITHUB_REPO")
+    repo = os.getenv("GITHUB_STATE_REPO") if file_path in {"sent_jobs.json", "last_run.json", "logs/app.log"} else os.getenv("GITHUB_REPO")
+    branch = os.getenv("GITHUB_STATE_BRANCH") if file_path in {"sent_jobs.json", "last_run.json", "logs/app.log"} else None
     url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    if branch:
+        url += f"?ref={branch}"
     
     headers = {"Authorization": f"token {token}"}
     response = requests.get(url, headers=headers)

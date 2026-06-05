@@ -8,9 +8,15 @@ load_dotenv()
 
 
 def push_to_github(file_path):
+    # The token is shared for both repos
+    # Build the correct URL for the target file, using the state repo for state files
     token = os.getenv("GITHUB_TOKEN")
-    repo  = os.getenv("GITHUB_REPO")
-    url   = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    repo = os.getenv("GITHUB_STATE_REPO") if file_path in {"sent_jobs.json", "last_run.json", "logs/app.log"} else os.getenv("GITHUB_REPO")
+    branch = os.getenv("GITHUB_STATE_BRANCH") if file_path in {"sent_jobs.json", "last_run.json", "logs/app.log"} else None
+    url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    if branch:
+        url += f"?ref={branch}"
+
 
     headers = {"Authorization": f"token {token}"}
 

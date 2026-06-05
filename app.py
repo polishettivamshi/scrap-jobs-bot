@@ -31,7 +31,8 @@ def _github_headers():
     return {"Authorization": f"token {token}"} if token else {}
 
 def _github_log_url():
-    repo = os.getenv("GITHUB_REPO")
+    # Log file lives in the *state* repository
+    repo = os.getenv("GITHUB_STATE_REPO")
     return f"https://api.github.com/repos/{repo}/contents/{GITHUB_LOG_PATH}"
 
 
