@@ -3,6 +3,7 @@ import os
 import time
 import requests
 import base64
+from datetime import datetime, timezone
 from config import JOB_CATEGORIES
 from fetchers import fetch_all_jobs
 from utils import send_telegram_message, format_job_message, get_last_run_time, save_last_run_time, STATE_FILE
@@ -15,6 +16,11 @@ load_dotenv()
 
 SENT_FILE = "sent_jobs.json"
 MAX_SENT_HISTORY = 5000  # Trim to avoid unbounded file growth
+
+# Hard cap: exit cleanly before Render kills the process at ~30 min.
+# Render free tier sends SIGKILL after 30 min with no warning — we exit at 25 min
+# so at least the last category's progress is saved before being cut off.
+RUN_TIMEOUT_SECONDS = 25 * 60   # 25 minutes
 
 
 def load_sent_jobs() -> set:
@@ -60,6 +66,25 @@ def pull_from_github(file_path):
 
 
 def main():
+    run_start = time.monotonic()
+
+    # ── Startup diagnostics (helps debug env issues on Render) ────────────────
+    print("\n" + "=" * 60)
+    print("[STARTUP] ENV VAR CHECK")
+    print("=" * 60)
+    env_vars = [
+        "SST_BOT_TOKEN", "SST_BACKEND_JOBS_CHAT_ID",
+        "SST_FRONTEND_JOBS_CHAT_ID", "SST_DEVOPS_JOBS_CHAT_ID",
+        "GITHUB_TOKEN", "GITHUB_REPO", "SCRAPER_API_KEY",
+    ]
+    for var in env_vars:
+        val = os.getenv(var)
+        if val:
+            print(f"  [OK]     {var} = ***{val[-4:]}")
+        else:
+            print(f"  [MISSING] {var} = NOT SET")
+    print("=" * 60 + "\n")
+
     pull_from_github(SENT_FILE)
     pull_from_github(STATE_FILE)
     last_run = get_last_run_time()
@@ -70,8 +95,15 @@ def main():
     print(f"📦 Already sent: {len(sent_jobs)} job IDs\n")
 
     for category, config in JOB_CATEGORIES.items():
+        # Check timeout before starting each category (not mid-category)
+        elapsed = time.monotonic() - run_start
+        if elapsed > RUN_TIMEOUT_SECONDS:
+            print(f"\n[TIMEOUT] Run limit reached ({elapsed/60:.1f} min). "
+                  f"Skipping remaining categories to avoid Render kill.")
+            break
+
         print(f"\n{'─'*50}")
-        print(f"📂 Category: {category.upper()}")
+        print(f"📂 Category: {category.upper()} | Elapsed: {elapsed/60:.1f} min")
         print(f"{'─'*50}")
 
         for keyword in config["keywords"]:

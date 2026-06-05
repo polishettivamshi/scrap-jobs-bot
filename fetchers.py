@@ -96,7 +96,7 @@ def _parse_struct_time(st) -> datetime | None:
     except Exception:
         return None
 
-def _safe_request(url: str, extra_headers: dict = None, timeout: int = 30, retries: int = 2):
+def _safe_request(url: str, extra_headers: dict = None, timeout: int = 15, retries: int = 1):
     headers = {**BASE_HEADERS, **(extra_headers or {})}
     for attempt in range(1, retries + 1):
         try:
@@ -211,7 +211,7 @@ def fetch_linkedin_jobs(keyword: str) -> list[dict]:
                     ))
                 except Exception:
                     continue
-        time.sleep(0.5)
+        time.sleep(0.2)
     return jobs
 
 
