@@ -5,7 +5,7 @@ import sys
 import base64
 import requests
 from datetime import datetime, timezone
-from flask import Flask, jsonify, request, abort
+from flask import Flask, jsonify, request, abort, render_template_string
 from dotenv import load_dotenv
 from logger import log_print as print, MEMORY_LOG_BUFFER
 
@@ -22,6 +22,30 @@ SECRET_KEY = os.getenv("SCRAPER_API_KEY", "your-super-secret-key")
 
 LOG_PATH = os.path.join("logs", "app.log")
 GITHUB_LOG_PATH = "logs/app.log"   # path as stored in the GitHub repo
+
+CHANNELS = [
+    {
+        "title": "Smart Scale Tech Backend Jobs",
+        "description": "Instant Backend Job Alerts for Python, Java, Node.js, goland, rust & Backend Engineer openings",
+        "link": "https://t.me/SmartScaleTechBackendJobs",
+        "experience": "All Levels (Entry to Lead)",
+        "image": "/static/channel_images/backend.jpeg",
+    },
+    {
+        "title": "Smart Scale Tech Frontend Jobs",
+        "description": "Instant Frontend Job Alerts for React, Angular, Vue, JavaScript, TypeScript & UI roles.",
+        "link": "https://t.me/SmartScaleTechFrontendJobs",
+        "experience": "All Levels (Entry to Lead)",
+        "image": "/static/channel_images/frontend.jpeg",
+    },
+    {
+        "title": "Smart Scale Tech DevOps Jobs",
+        "description": "Instant DevOps Job Alerts for AWS, Docker, Kubernetes, CI/CD, SRE, and cloud roles.",
+        "link": "https://t.me/SmartScaleTechDevOpsJobs",
+        "experience": "All Levels (Entry to Lead)",
+        "image": "/static/channel_images/devops.jpeg",
+    },
+]
 
 
 # ── GitHub log helpers ────────────────────────────────────────────────────────
@@ -153,6 +177,78 @@ def get_logs():
         "Trigger a scrape run to generate logs.",
         404,
     )
+
+
+@app.route('/channels', methods=['GET'])
+def channels():
+    html = render_template_string(
+        """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Telegram Channels</title>
+            <style>
+                :root {
+                    color-scheme: dark;
+                    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                    background: #090b12;
+                    color: #edf2f7;
+                }
+                * { box-sizing: border-box; }
+                body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, rgba(96, 165, 250, 0.14), transparent 32%), linear-gradient(180deg, #111827 0%, #060a12 100%); }
+                .page { width: min(1200px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 56px; }
+                .heading { text-align: center; margin-bottom: 28px; }
+                .heading h1 { margin: 0; font-size: clamp(2rem, 3vw, 3.2rem); letter-spacing: -0.04em; }
+                .heading p { margin: 14px auto 0; max-width: 760px; color: #94a3b8; font-size: 1rem; line-height: 1.7; }
+                .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+                @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+                .card {
+                    background: rgba(15, 23, 42, 0.88);
+                    border: 1px solid rgba(148, 163, 184, 0.12);
+                    border-radius: 28px;
+                    overflow: hidden;
+                    box-shadow: 0 40px 80px rgba(15, 23, 42, 0.18);
+                    transition: transform 180ms ease, box-shadow 180ms ease;
+                }
+                .card:hover { transform: translateY(-4px); box-shadow: 0 48px 100px rgba(15, 23, 42, 0.24); }
+                .card img { width: 100%; height: 220px; object-fit: cover; display: block; }
+                .card-body { padding: 24px; }
+                .card-title { margin: 0 0 10px; font-size: 1.3rem; line-height: 1.2; }
+                .meta { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 18px; color: #94a3b8; font-size: 0.95rem; }
+                .card-text { margin: 0 0 22px; color: #cbd5e1; line-height: 1.65; }
+                .button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 18px; border-radius: 999px; background: #2563eb; color: #fff; text-decoration: none; font-weight: 600; transition: background 180ms ease; }
+                .button:hover { background: #1d4ed8; }
+                .badge { background: rgba(37, 99, 235, 0.14); color: #bfdbfe; padding: 6px 12px; border-radius: 999px; font-size: 0.82rem; }
+            </style>
+        </head>
+        <body>
+            <div class="page">
+                <div class="heading">
+                    <h1>Telegram channels</h1>
+                    <p>Explore the current Smart Scale Tech job channels. Click any card to open the channel in Telegram.</p>
+                </div>
+                <div class="grid">
+                    {% for channel in channels %}
+                    <article class="card">
+                        <img src="{{ channel.image }}" alt="{{ channel.title }} preview" />
+                        <div class="card-body">
+                            <div class="meta"><span class="badge">{{ channel.experience }}</span></div>
+                            <h2 class="card-title">{{ channel.title }}</h2>
+                            <p class="card-text">{{ channel.description }}</p>
+                            <a class="button" href="{{ channel.link }}" target="_blank" rel="noreferrer noopener">View in Telegram</a>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </div>
+        </body>
+        </html>
+        """,
+        channels=CHANNELS,
+    )
+    return html
 
 
 @app.route('/trigger-scrape', methods=['POST'])
